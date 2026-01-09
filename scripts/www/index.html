@@ -1,11 +1,706 @@
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>PakePlus</title>
-    </head>
-    <body>
-        PakePlus
-    </body>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>ORBITAL ASTEROIDS | V6.3</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@100;300;400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000000; 
+            font-family: 'Noto Sans SC', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent; 
+        }
+        canvas { display: block; outline: none; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .planet-info {
+            position: absolute;
+            top: 40px;
+            left: 40px;
+            color: #fff;
+            border-left: 3px solid #fff;
+            padding-left: 15px;
+            text-shadow: 0 0 10px rgba(0,0,0,0.8);
+        }
+        .planet-name {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            margin-bottom: 5px;
+        }
+        .planet-data {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 11px;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .bottom-hub {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 60px;
+            pointer-events: auto;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+
+        .hub-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            z-index: 0;
+        }
+
+        .hub-node {
+            position: relative;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 2;
+        }
+
+        .node-core {
+            width: 8px;
+            height: 8px;
+            background: #000;
+            border: 2px solid rgba(255,255,255,0.6);
+            border-radius: 50%;
+            transition: all 0.2s ease-out;
+        }
+
+        .node-ring {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 50%;
+            transform: scale(0);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .node-label {
+            position: absolute;
+            bottom: -20px;
+            font-size: 10px;
+            color: rgba(255,255,255,0.5);
+            opacity: 0;
+            transform: translateY(-5px);
+            transition: all 0.3s;
+        }
+
+        .hub-node.active .node-core {
+            background: #fff;
+            box-shadow: 0 0 20px #fff;
+            transform: scale(1.1);
+            border-color: #fff;
+        }
+        .hub-node.active .node-ring {
+            transform: scale(1);
+            border-color: rgba(255,255,255,0.5);
+        }
+        .hub-node.active .node-label {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .gesture-hint {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.3);
+            font-size: 10px;
+            letter-spacing: 1px;
+        }
+
+        #input-video { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="planet-info" id="planet-info">
+            <div class="planet-name" id="p-name">SATURN</div>
+            <div class="planet-data" id="p-data">
+                DIA: 116,460 KM // ROT: 10H 42M
+            </div>
+        </div>
+
+        <div class="bottom-hub">
+            <div class="hub-line"></div>
+            <div class="hub-node active" onclick="app.switchPlanet(0)">
+                <div class="node-ring"></div>
+                <div class="node-core"></div>
+                <div class="node-label">土星</div>
+            </div>
+            <div class="hub-node" onclick="app.switchPlanet(1)">
+                <div class="node-ring"></div>
+                <div class="node-core"></div>
+                <div class="node-label">木星</div>
+            </div>
+        </div>
+
+        <div class="gesture-hint">
+            单指旋转 · 双指缩放 · 滚轮缩放
+        </div>
+    </div>
+
+    <video id="input-video" playsinline webkit-playsinline></video>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <script>
+        class ParticleUniverse {
+            constructor() {
+                this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+                this.config = {
+                    count: this.isMobile ? 50000 : 105000,
+                    sens: {
+                        rotate: 0.05,
+                        wheel: 0.003,
+                        pinch: 2.0,
+                        smooth: 0.5
+                    },
+                    colors: {
+                        saturn: { 
+                            core: [1.0, 0.85, 0.5], 
+                            ring: [0.6, 0.85, 1.0]  
+                        },
+                        jupiter: { 
+                            base: [0.7, 0.4, 0.15], 
+                            light: [0.7, 0.65, 0.55],
+                            red: [0.8, 0.1, 0.05]   
+                        }
+                    },
+                    data: [
+                        { name: "土星 SATURN", txt: "DIA: 116,460 KM // ROT: 10H 42M" },
+                        { name: "木星 JUPITER", txt: "DIA: 139,820 KM // ROT: 09H 56M" }
+                    ]
+                };
+
+                this.state = {
+                    morph: 0,
+                    rotationX: 0.3, 
+                    rotationY: 0,
+                    scale: 1.0,      
+                    targetScale: 1.0 
+                };
+
+                this.smooth = {
+                    rotX: 0.3,
+                    rotY: 0,
+                    scale: 1.0
+                };
+
+                this.initThree();
+                this.initStars();
+                this.initParticles();
+                this.initPostProcessing();
+                this.initInputs(); 
+                this.initCamera();
+                this.animate();
+            }
+
+            initThree() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+                this.camera.position.set(0, 0, 60);
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                document.body.appendChild(this.renderer.domElement);
+
+                this.group = new THREE.Group();
+                this.scene.add(this.group);
+
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    this.composer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            initStars() {
+                const count = 3000;
+                const pos = new Float32Array(count * 3);
+                const alpha = new Float32Array(count);
+                
+                for(let i=0; i<count; i++) {
+                    const r = 300 + Math.random() * 600;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    pos[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                    pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                    pos[i*3+2] = r * Math.cos(phi);
+                    alpha[i] = Math.random();
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                geo.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
+
+                const mat = new THREE.ShaderMaterial({
+                    uniforms: { uTime: { value: 0 } },
+                    vertexShader: `
+                        attribute float alpha;
+                        varying float vAlpha;
+                        void main() {
+                            vAlpha = alpha;
+                            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                            gl_PointSize = (1.0 + alpha) * (800.0 / -mv.z);
+                            gl_Position = projectionMatrix * mv;
+                        }
+                    `,
+                    fragmentShader: `
+                        varying float vAlpha;
+                        uniform float uTime;
+                        void main() {
+                            float d = length(gl_PointCoord - 0.5);
+                            if(d > 0.5) discard;
+                            float twinkle = 0.5 + 0.5 * sin(uTime * 2.0 + vAlpha * 10.0);
+                            gl_FragColor = vec4(1.0, 1.0, 1.0, vAlpha * twinkle * 0.8);
+                        }
+                    `,
+                    transparent: true, depthWrite: false
+                });
+
+                this.stars = new THREE.Points(geo, mat);
+                this.scene.add(this.stars);
+            }
+
+            initParticles() {
+                const { count, colors } = this.config;
+                const posS = [], posJ = [], colS = [], colJ = [], sizes = [], rdm = [];
+                const color = new THREE.Color();
+
+                // --- 修改点：定义小行星数量 ---
+                const asteroidCount = 1000;
+                
+                for(let i=0; i<count; i++) {
+                    sizes.push(Math.random());
+                    rdm.push(Math.random());
+
+                    // --- 土星生成 (保持不变) ---
+                    let sx, sy, sz, r, theta;
+                    if (i < count * 0.25) {
+                        r = 9.0 + (Math.random()-0.5);
+                        theta = Math.random() * Math.PI * 2;
+                        let phi = Math.acos(2*Math.random()-1);
+                        sx = r * Math.sin(phi) * Math.cos(theta);
+                        sy = r * Math.sin(phi) * Math.sin(theta);
+                        sz = r * Math.cos(phi);
+                        color.setRGB(...colors.saturn.core);
+                        if(Math.random()>0.7) color.addScalar(0.2);
+                    } else {
+                        r = 14 + Math.random() * 12;
+                        if(r > 19 && r < 20) r += 1.5;
+                        theta = Math.random() * Math.PI * 2;
+                        sx = r * Math.cos(theta);
+                        sy = (Math.random()-0.5) * 0.3;
+                        sz = r * Math.sin(theta);
+                        color.setRGB(...colors.saturn.ring);
+                        color.multiplyScalar(1.0 - (r-14)/20);
+                    }
+                    posS.push(sx, sy, sz);
+                    colS.push(color.r, color.g, color.b);
+
+                    // --- 木星生成 (含小行星带) ---
+                    let jx, jy, jz;
+                    
+                    // 如果是最后 1000 个粒子，生成小行星
+                    if (i >= count - asteroidCount) {
+                        // --- 小行星带逻辑 ---
+                        // 随机半径在 15 到 28 之间
+                        const aRad = 15 + Math.random() * 13;
+                        const aTheta = Math.random() * Math.PI * 2;
+
+                        // 基础位置
+                        jx = aRad * Math.cos(aTheta);
+                        jz = aRad * Math.sin(aTheta);
+
+                        // 添加随机偏移，让带子看起来更自然、杂乱
+                        jx += (Math.random() - 0.5) * 0.8;
+                        jz += (Math.random() - 0.5) * 0.8;
+                        // Y轴扁平分布，但有轻微抖动
+                        jy = (Math.random() - 0.5) * 1.2;
+
+                        // 小行星颜色：岩石/尘埃感 (灰褐色调)
+                        // 基于木星基色调暗、去饱和
+                        color.setRGB(
+                            0.6 + Math.random() * 0.1, // R
+                            0.5 + Math.random() * 0.1, // G
+                            0.4 + Math.random() * 0.1  // B
+                        );
+                        // 随机亮度，模拟不规则反光
+                        color.multiplyScalar(0.5 + Math.random() * 0.5);
+
+                    } else {
+                        // --- 木星本体 (保持不变) ---
+                        const jr = 10.0; 
+                        theta = Math.random() * Math.PI * 2;
+                        let phi = Math.acos(2*Math.random()-1);
+                        jx = jr * Math.sin(phi) * Math.cos(theta);
+                        jy = jr * Math.sin(phi) * Math.sin(theta);
+                        jz = jr * Math.cos(phi);
+
+                        let yNorm = jy / jr; 
+                        let band = Math.sin(yNorm * 25.0 + Math.sin(jx * 0.4)*4.0);
+                        let isSpot = false;
+                        if(jx > 2 && jx < 6 && jy > -4 && jy < -1 && jz > 0) isSpot = true;
+                        
+                        let bc = new THREE.Color().setRGB(...colors.jupiter.base);
+                        let lc = new THREE.Color().setRGB(...colors.jupiter.light);
+                        let rc = new THREE.Color().setRGB(...colors.jupiter.red);
+
+                        if(isSpot) {
+                            color.copy(rc).lerp(bc, Math.random()*0.3);
+                        } else {
+                            let mixVal = band * 0.5 + 0.5;
+                            mixVal = smoothstep(0.3, 0.7, mixVal);
+                            color.copy(bc).lerp(lc, mixVal);
+                        }
+                    }
+                    
+                    posJ.push(jx, jy, jz);
+                    colJ.push(color.r, color.g, color.b);
+                }
+
+                function smoothstep(min, max, value) {
+                    var x = Math.max(0, Math.min(1, (value-min)/(max-min)));
+                    return x*x*(3 - 2*x);
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(posS, 3));
+                geo.setAttribute('aPosSaturn', new THREE.Float32BufferAttribute(posS, 3));
+                geo.setAttribute('aPosJupiter', new THREE.Float32BufferAttribute(posJ, 3));
+                geo.setAttribute('aColorSaturn', new THREE.Float32BufferAttribute(colS, 3));
+                geo.setAttribute('aColorJupiter', new THREE.Float32BufferAttribute(colJ, 3));
+                geo.setAttribute('aSize', new THREE.Float32BufferAttribute(sizes, 1));
+                geo.setAttribute('aRandom', new THREE.Float32BufferAttribute(rdm, 1));
+
+                this.material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uTime: { value: 0 },
+                        uMorph: { value: 0 },
+                        uScale: { value: 1.0 },
+                        uChaos: { value: 0 },
+                        uOpacity: { value: 0.8 }
+                    },
+                    vertexShader: `
+                        uniform float uTime;
+                        uniform float uMorph;
+                        uniform float uScale;
+                        uniform float uChaos;
+                        attribute vec3 aPosSaturn;
+                        attribute vec3 aPosJupiter;
+                        attribute vec3 aColorSaturn;
+                        attribute vec3 aColorJupiter;
+                        attribute float aSize;
+                        attribute float aRandom;
+                        varying vec3 vColor;
+                        void main() {
+                            vec3 pos = mix(aPosSaturn, aPosJupiter, uMorph);
+                            vColor = mix(aColorSaturn, aColorJupiter, uMorph);
+                            
+                            float rot = uTime * 0.1;
+                            if(uMorph > 0.5) {
+                                float dist = length(pos);
+                                // 距离大于12的(小行星)使用公转速度
+                                if(dist > 12.0) {
+                                    rot = uTime * 0.05 / (dist * 0.05); 
+                                } else {
+                                    // 本体差速自转
+                                    rot = rot * (1.0 + abs(pos.y)*0.08); 
+                                }
+                            }
+                            
+                            float c = cos(rot); float s = sin(rot);
+                            float x = pos.x * c - pos.z * s;
+                            float z = pos.x * s + pos.z * c;
+                            pos.x = x; pos.z = z;
+
+                            pos *= uScale;
+
+                            if(uChaos > 0.0) {
+                                float warpSpeed = uChaos * 20.0;
+                                vec3 dir = normalize(pos);
+                                pos.z += uChaos * 30.0 * aRandom;
+                                pos.xy *= (1.0 + uChaos * 2.0 * aRandom);
+                                vColor *= (0.5 + 0.5 * sin(uTime * 50.0 * aRandom));
+                            }
+
+                            vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+                            
+                            float scaleFactor = 0.5 + uScale * 0.5;
+                            gl_PointSize = aSize * (350.0 / -mv.z) * scaleFactor;
+                            
+                            gl_Position = projectionMatrix * mv;
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform float uOpacity;
+                        varying vec3 vColor;
+                        void main() {
+                            float d = length(gl_PointCoord - 0.5);
+                            if(d > 0.5) discard;
+                            float alpha = 1.0 - smoothstep(0.1, 0.5, d);
+                            gl_FragColor = vec4(vColor, alpha * uOpacity);
+                        }
+                    `,
+                    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+                });
+
+                this.particles = new THREE.Points(geo, this.material);
+                this.group.add(this.particles);
+                this.group.rotation.x = 0.3;
+            }
+
+            initPostProcessing() {
+                const renderScene = new THREE.RenderPass(this.scene, this.camera);
+                const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+                bloom.threshold = 0.2;
+                bloom.strength = 1.2; 
+                bloom.radius = 0.5;
+                this.bloom = bloom;
+
+                this.composer = new THREE.EffectComposer(this.renderer);
+                this.composer.addPass(renderScene);
+                this.composer.addPass(bloom);
+            }
+
+            initInputs() {
+                let isDragging = false;
+                let lastX, lastY;
+                let isPinching = false;
+                let startPinchDist = 0;
+                let startScale = 1.0;
+
+                const canvas = this.renderer.domElement;
+
+                canvas.addEventListener('mousedown', e => {
+                    isDragging = true;
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                });
+                
+                window.addEventListener('mouseup', () => isDragging = false);
+
+                window.addEventListener('mousemove', e => {
+                    if(isDragging) {
+                        const dx = e.clientX - lastX;
+                        const dy = e.clientY - lastY;
+                        this.state.rotationY += dx * this.config.sens.rotate;
+                        this.state.rotationX += dy * this.config.sens.rotate;
+                        lastX = e.clientX;
+                        lastY = e.clientY;
+                    }
+                });
+
+                window.addEventListener('wheel', e => {
+                    const delta = e.deltaY;
+                    this.state.targetScale -= delta * this.config.sens.wheel;
+                    this.state.targetScale = Math.max(1.0, Math.min(3.8, this.state.targetScale));
+                });
+
+                canvas.addEventListener('touchstart', e => {
+                    e.preventDefault();
+                    if(e.touches.length === 1) {
+                        isDragging = true;
+                        lastX = e.touches[0].clientX;
+                        lastY = e.touches[0].clientY;
+                    } else if (e.touches.length === 2) {
+                        isPinching = true;
+                        isDragging = false; 
+                        const dx = e.touches[0].clientX - e.touches[1].clientX;
+                        const dy = e.touches[0].clientY - e.touches[1].clientY;
+                        startPinchDist = Math.hypot(dx, dy);
+                        startScale = this.state.targetScale;
+                    }
+                }, {passive: false});
+
+                canvas.addEventListener('touchmove', e => {
+                    e.preventDefault();
+                    if(e.touches.length === 1 && isDragging) {
+                        const dx = e.touches[0].clientX - lastX;
+                        const dy = e.touches[0].clientY - lastY;
+                        this.state.rotationY += dx * this.config.sens.rotate;
+                        this.state.rotationX += dy * this.config.sens.rotate;
+                        lastX = e.touches[0].clientX;
+                        lastY = e.touches[0].clientY;
+                    } else if (e.touches.length === 2 && isPinching) {
+                        const dx = e.touches[0].clientX - e.touches[1].clientX;
+                        const dy = e.touches[0].clientY - e.touches[1].clientY;
+                        const dist = Math.hypot(dx, dy);
+                        const ratio = dist / startPinchDist;
+                        const newScale = startScale * (1 + (ratio - 1) * this.config.sens.pinch);
+                        this.state.targetScale = Math.max(1.0, Math.min(3.8, newScale));
+                    }
+                }, {passive: false});
+
+                canvas.addEventListener('touchend', () => {
+                    isDragging = false;
+                    isPinching = false;
+                });
+            }
+
+            initCamera() {
+                const video = document.getElementById('input-video');
+                const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+                hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+
+                let lastSmoothX = null;
+                let lastSmoothY = null;
+
+                hands.onResults(res => {
+                    if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+                        const lm = res.multiHandLandmarks[0];
+                        
+                        const rawCx = (lm[0].x + lm[9].x) * 0.5;
+                        const rawCy = (lm[0].y + lm[9].y) * 0.5;
+
+                        if (lastSmoothX === null) {
+                            lastSmoothX = rawCx;
+                            lastSmoothY = rawCy;
+                        }
+
+                        const lerpFactor = 0.15;
+                        const currSmoothX = lastSmoothX + (rawCx - lastSmoothX) * lerpFactor;
+                        const currSmoothY = lastSmoothY + (rawCy - lastSmoothY) * lerpFactor;
+
+                        const dx = currSmoothX - lastSmoothX;
+                        const dy = currSmoothY - lastSmoothY;
+                        
+                        const handRotSens = 8.0; 
+                        this.state.rotationY -= dx * handRotSens;
+                        this.state.rotationX += dy * handRotSens;
+
+                        lastSmoothX = currSmoothX;
+                        lastSmoothY = currSmoothY;
+
+                        const pinch = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+                        const ref = Math.hypot(lm[0].x - lm[5].x, lm[0].y - lm[5].y); 
+                        const ratio = pinch / ref;
+                        
+                        let rawTarget = 1.0 + (ratio - 0.2) * 3.0;
+                        rawTarget = Math.max(1.0, Math.min(3.8, rawTarget));
+                        
+                        if(Math.abs(rawTarget - this.state.targetScale) > 0.05) {
+                             this.state.targetScale += (rawTarget - this.state.targetScale) * 0.2; 
+                        }
+                    } else {
+                        lastSmoothX = null;
+                        lastSmoothY = null;
+                    }
+                });
+
+                const cam = new Camera(video, {
+                    onFrame: async () => await hands.send({image: video}),
+                    width: 320, height: 240, facingMode: 'user'
+                });
+                cam.start().catch(()=>{});
+            }
+
+            switchPlanet(idx) {
+                if(this.state.morph === idx) return;
+                
+                document.querySelectorAll('.hub-node').forEach((el, i) => {
+                    if(i === idx) el.classList.add('active');
+                    else el.classList.remove('active');
+                });
+
+                const elName = document.getElementById('p-name');
+                const elData = document.getElementById('p-data');
+                elName.style.opacity = 0; elData.style.opacity = 0;
+                
+                setTimeout(() => {
+                    elName.innerText = this.config.data[idx].name.split(' ')[0]; 
+                    elName.innerHTML = this.config.data[idx].name.replace(' ', '<br><span style="font-size:14px; opacity:0.5; letter-spacing:1px">') + '</span>';
+                    elData.innerText = this.config.data[idx].txt;
+                    elName.style.opacity = 1; elData.style.opacity = 1;
+                }, 400);
+
+                new TWEEN.Tween(this.state)
+                    .to({ morph: idx }, 2000)
+                    .easing(TWEEN.Easing.Cubic.InOut)
+                    .start();
+                
+                const z = idx === 0 ? 60 : 70;
+                new TWEEN.Tween(this.camera.position).to({ z: z }, 2000).easing(TWEEN.Easing.Back.Out).start();
+            }
+
+            animate() {
+                requestAnimationFrame(this.animate.bind(this));
+                TWEEN.update();
+
+                const dt = this.config.sens.smooth;
+
+                this.smooth.rotX += (this.state.rotationX - this.smooth.rotX) * dt;
+                this.smooth.rotY += (this.state.rotationY - this.smooth.rotY) * dt;
+                
+                this.group.rotation.x = this.smooth.rotX;
+                this.group.rotation.y = this.smooth.rotY;
+
+                this.smooth.scale += (this.state.targetScale - this.smooth.scale) * dt;
+                
+                let chaos = 0;
+                if(this.smooth.scale > 2.8) {
+                    chaos = this.smooth.scale - 2.8;
+                    this.bloom.strength = 1.2 + chaos * 2.5; 
+                } else {
+                    this.bloom.strength = 1.2;
+                }
+
+                let scaleNorm = (this.smooth.scale - 1.0) / 2.8; 
+                let baseOpacity = 0.25 + scaleNorm * 0.45;
+                let finalOpacity = baseOpacity + chaos * 0.5;
+                
+                this.material.uniforms.uTime.value += 0.01;
+                this.material.uniforms.uMorph.value = this.state.morph;
+                this.material.uniforms.uScale.value = this.smooth.scale;
+                this.material.uniforms.uChaos.value = chaos;
+                this.material.uniforms.uOpacity.value = finalOpacity;
+                
+                this.stars.material.uniforms.uTime.value += 0.005;
+
+                this.composer.render();
+            }
+        }
+
+        const app = new ParticleUniverse();
+    </script>
+</body>
 </html>
